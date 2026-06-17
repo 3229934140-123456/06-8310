@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Star, X, Check, FileText, Receipt, Clock } from 'lucide-react'
+import { ArrowLeft, Star, X, Check, FileText, Receipt, Clock, MessageCircle, Send, User } from 'lucide-react'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useStoreStore } from '@/store/useStoreStore'
 import { useReviewStore } from '@/store/useReviewStore'
-import type { Review, AppointmentStatus } from '@/types'
+import type { Review, AppointmentMessage } from '@/types'
 
 const STATUS_LABEL: Record<string, string> = {
   pending: '待确认', confirmed: '已确认', in_progress: '维修中',
   completed: '已完成', cancelled: '已取消', rejected: '已拒绝',
-  report_uploaded: '报告已上传',
+  report_uploaded: '报告已上传', reviewed: '已评价',
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -28,7 +28,8 @@ const TIMELINE_STEP_LABELS: Record<string, string> = {
   confirmed: '门店确认',
   in_progress: '开始维修',
   report_uploaded: '上传报告',
-  completed: '完工评价',
+  completed: '已完工',
+  reviewed: '已评价',
 }
 
 const REVIEW_TAGS = ['服务专业', '价格透明', '环境整洁', '效率高', '等位久', '态度一般']
@@ -37,28 +38,32 @@ export default function AppointmentDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { currentUser } = useAuthStore()
-  const { appointments, loadAppointments, updateStatus } = useAppointmentStore()
+  const { appointments, loadAppointments, updateStatus, addMessage, markReviewed } = useAppointmentStore()
   const { vehicles, loadVehicles } = useVehicleStore()
   const { stores, loadStores } = useStoreStore()
-  const { addReview } = useReviewStore()
+  const { addReview, hasReviewForAppointment, getReviewForAppointment, loadReviews } = useReviewStore()
 
   const [rating, setRating] = useState(0)
   const [comment, setComment] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [hoverStar, setHoverStar] = useState(0)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [msgText, setMsgText] = useState('')
 
   useEffect(() => {
     if (currentUser?.id) {
       loadAppointments(currentUser.id)
       loadVehicles(currentUser.id)
+      loadReviews()
     }
     loadStores()
-  }, [currentUser?.id, loadAppointments, loadVehicles, loadStores])
+  }, [currentUser?.id, loadAppointments, loadVehicles, loadStores, loadReviews])
 
   const apt = appointments.find((a) => a.id === id)
   const vehicle = apt ? vehicles.find((v) => v.id === apt.vehicleId) : null
   const store = apt ? stores.find((s) => s.id === apt.storeId) : null
+  const existingReview = apt ? getReviewForAppointment(apt.id) : undefined
+  const alreadyReviewed = apt ? hasReviewForAppointment(apt.id) : false
 
   const toggleTag = (tag: string) =>
     setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
@@ -68,15 +73,29 @@ export default function AppointmentDetail() {
   }
 
   const handleSubmitReview = () => {
-    if (!apt || !currentUser?.id || rating === 0) return
+    if (!apt || !currentUser?.id || rating === 0 || alreadyReviewed) return
+    const reviewId = Date.now().toString() + Math.random().toString(36).slice(2, 6)
     const review: Review = {
-      id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-      appointmentId: apt.id, storeId: apt.storeId, userId: currentUser.id,
+      id: reviewId, appointmentId: apt.id, storeId: apt.storeId, userId: currentUser.id,
       rating, comment: comment || undefined, tags: selectedTags.length > 0 ? selectedTags : undefined,
       createdAt: new Date().toISOString(),
     }
     addReview(review)
+    markReviewed(apt.id, reviewId)
     setRating(0); setComment(''); setSelectedTags([])
+  }
+
+  const handleSendMessage = () => {
+    if (!apt || !currentUser?.id || !msgText.trim()) return
+    const msg: AppointmentMessage = {
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+      senderRole: 'owner',
+      senderName: currentUser.name || '车主',
+      content: msgText.trim(),
+      createdAt: new Date().toISOString(),
+    }
+    addMessage(apt.id, msg)
+    setMsgText('')
   }
 
   const formatTime = (ts: string) => {
@@ -94,6 +113,7 @@ export default function AppointmentDetail() {
   }
 
   const timeline = apt.timeline || []
+  const messages = apt.messages || []
 
   return (
     <div className="space-y-6">
@@ -121,16 +141,26 @@ export default function AppointmentDetail() {
                 <div key={i} className="flex gap-4">
                   <div className="flex flex-col items-center">
                     <div className={`w-3 h-3 rounded-full shrink-0 mt-1.5 ${
-                      isLast ? 'bg-accent ring-4 ring-accent/20' : 'bg-accent'
+                      isLast ? 'bg-accent ring-4 ring-accent/20' : entry.status === 'reviewed' ? 'bg-emerald-500' : 'bg-accent'
                     }`} />
                     {!isLast && <div className="w-0.5 flex-1 bg-accent/30 my-1" />}
                   </div>
-                  <div className={`pb-4 ${isLast ? '' : ''}`}>
+                  <div className="pb-4">
                     <div className="flex items-center gap-2">
                       <span className={`text-sm font-medium ${isLast ? 'text-primary' : 'text-gray-700'}`}>{label}</span>
-                      {isLast && <Check size={14} className="text-accent" />}
+                      {entry.status === 'reviewed' && existingReview && (
+                        <span className="text-xs text-amber-500">
+                          {existingReview.rating}星
+                          {existingReview.tags && existingReview.tags.length > 0 && ` · ${existingReview.tags.join('、')}`}
+                        </span>
+                      )}
+                      {isLast && entry.status !== 'reviewed' && <Check size={14} className="text-accent" />}
+                      {entry.status === 'reviewed' && <Star size={14} className="fill-amber-400 text-amber-400" />}
                     </div>
                     <span className="text-xs text-gray-400">{formatTime(entry.timestamp)}</span>
+                    {entry.status === 'reviewed' && existingReview?.comment && (
+                      <p className="text-xs text-gray-500 mt-1 bg-gray-50 rounded px-2 py-1">{existingReview.comment}</p>
+                    )}
                   </div>
                 </div>
               )
@@ -169,10 +199,7 @@ export default function AppointmentDetail() {
           </div>
         </div>
         {apt.notes && (
-          <div>
-            <p className="text-sm text-gray-400 mb-1">备注</p>
-            <p className="text-gray-700">{apt.notes}</p>
-          </div>
+          <div><p className="text-sm text-gray-400 mb-1">备注</p><p className="text-gray-700">{apt.notes}</p></div>
         )}
       </div>
 
@@ -213,7 +240,51 @@ export default function AppointmentDetail() {
         </div>
       )}
 
-      {apt.status === 'completed' && (
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <h3 className="font-semibold text-primary mb-4 flex items-center gap-2">
+          <MessageCircle size={18} className="text-accent" />
+          沟通消息
+        </h3>
+        {messages.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">暂无消息</p>
+        ) : (
+          <div className="space-y-3 mb-4 max-h-60 overflow-y-auto scrollbar-thin">
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex gap-2 ${msg.senderRole === 'owner' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] rounded-xl px-3 py-2 ${
+                  msg.senderRole === 'owner'
+                    ? 'bg-accent text-white'
+                    : 'bg-primary/5 text-gray-700'
+                }`}>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <User size={10} />
+                    <span className="text-[10px] font-medium">{msg.senderName}</span>
+                    <span className={`text-[10px] ${msg.senderRole === 'owner' ? 'text-white/60' : 'text-gray-400'}`}>
+                      {formatTime(msg.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm">{msg.content}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            value={msgText}
+            onChange={(e) => setMsgText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+            placeholder="输入消息..."
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent focus:border-accent outline-none"
+          />
+          <button onClick={handleSendMessage} disabled={!msgText.trim()}
+            className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <Send size={16} />
+          </button>
+        </div>
+      </div>
+
+      {apt.status === 'completed' && !alreadyReviewed && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
           <h3 className="font-semibold text-primary">评价服务</h3>
           <div className="flex items-center gap-1">
@@ -243,6 +314,30 @@ export default function AppointmentDetail() {
             className="px-6 py-2.5 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed">
             提交评价
           </button>
+        </div>
+      )}
+
+      {alreadyReviewed && existingReview && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+          <h3 className="font-semibold text-primary mb-3 flex items-center gap-2">
+            <Star size={18} className="fill-amber-400 text-amber-400" />
+            我的评价
+          </h3>
+          <div className="flex items-center gap-1 mb-2">
+            {Array.from({ length: 5 }, (_, i) => (
+              <Star key={i} size={18} className={i < existingReview.rating ? 'fill-amber-400 text-amber-400' : 'text-gray-300'} />
+            ))}
+            <span className="text-sm text-gray-500 ml-2">{existingReview.rating}分</span>
+            <span className="text-xs text-gray-400 ml-2">{new Date(existingReview.createdAt).toLocaleString('zh-CN')}</span>
+          </div>
+          {existingReview.tags && existingReview.tags.length > 0 && (
+            <div className="flex gap-1.5 mb-2">
+              {existingReview.tags.map((tag) => (
+                <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-accent/10 text-accent">{tag}</span>
+              ))}
+            </div>
+          )}
+          {existingReview.comment && <p className="text-sm text-gray-600">{existingReview.comment}</p>}
         </div>
       )}
 

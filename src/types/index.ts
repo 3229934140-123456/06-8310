@@ -73,8 +73,17 @@ export type AppointmentStatus =
   | 'rejected'
 
 export interface TimelineEntry {
-  status: AppointmentStatus | 'report_uploaded'
+  status: AppointmentStatus | 'report_uploaded' | 'reviewed'
   timestamp: string
+  detail?: string
+}
+
+export interface AppointmentMessage {
+  id: string
+  senderRole: 'owner' | 'store'
+  senderName: string
+  content: string
+  createdAt: string
 }
 
 export interface Appointment {
@@ -90,9 +99,12 @@ export interface Appointment {
   notes?: string
   createdAt: string
   timeline?: TimelineEntry[]
+  messages?: AppointmentMessage[]
   reportText?: string
   reportImages?: string[]
   invoiceImages?: string[]
+  reviewedAt?: string
+  reviewId?: string
 }
 
 export interface Review {

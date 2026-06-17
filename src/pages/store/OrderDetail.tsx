@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Check, Upload, FileText, Receipt, Clock } from 'lucide-react'
+import { ArrowLeft, Check, Upload, FileText, Receipt, Clock, MessageCircle, Send, User, Star, X, RefreshCw } from 'lucide-react'
 import { useStoreStore } from '@/store/useStoreStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
+import { useReviewStore } from '@/store/useReviewStore'
+import type { AppointmentMessage } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -17,7 +19,7 @@ const STATUS_BADGE: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   pending: '待确认', confirmed: '已确认', in_progress: '维修中',
   completed: '已完成', cancelled: '已取消', rejected: '已拒绝',
-  report_uploaded: '报告已上传',
+  report_uploaded: '报告已上传', reviewed: '已评价',
 }
 
 const TIMELINE_STEP_LABELS: Record<string, string> = {
@@ -26,18 +28,22 @@ const TIMELINE_STEP_LABELS: Record<string, string> = {
   in_progress: '开始维修',
   report_uploaded: '上传报告',
   completed: '完工',
+  reviewed: '已评价',
 }
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { stores, loadStores } = useStoreStore()
-  const { appointments, loadAppointments, updateStatus, uploadReport } = useAppointmentStore()
+  const { appointments, loadAppointments, updateStatus, uploadReport, deleteImage, replaceImage, addMessage } = useAppointmentStore()
   const { vehicles, loadVehicles } = useVehicleStore()
+  const { getReviewForAppointment, loadReviews } = useReviewStore()
 
   const [reportText, setReportText] = useState('')
-  const [reportImageData, setReportImageData] = useState<string[]>([])
-  const [invoiceImageData, setInvoiceImageData] = useState<string[]>([])
+  const [newReportImages, setNewReportImages] = useState<string[]>([])
+  const [newInvoiceImages, setNewInvoiceImages] = useState<string[]>([])
+  const [msgText, setMsgText] = useState('')
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const reportInputRef = useRef<HTMLInputElement>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
 
@@ -46,7 +52,8 @@ export default function OrderDetail() {
 
   useEffect(() => {
     if (storeId) loadAppointments(undefined, storeId)
-  }, [storeId, loadAppointments])
+    loadReviews()
+  }, [storeId, loadAppointments, loadReviews])
 
   useEffect(() => {
     const uids = [...new Set(appointments.map((a) => a.userId))]
@@ -55,11 +62,10 @@ export default function OrderDetail() {
 
   const apt = appointments.find((a) => a.id === id)
   const vehicle = apt ? vehicles.find((v) => v.id === apt.vehicleId) : null
+  const existingReview = apt ? getReviewForAppointment(apt.id) : undefined
 
   useEffect(() => {
-    if (apt) {
-      setReportText(apt.reportText || '')
-    }
+    if (apt) setReportText('')
   }, [apt?.id])
 
   const handleConfirm = () => { if (apt) updateStatus(apt.id, 'confirmed') }
@@ -69,13 +75,36 @@ export default function OrderDetail() {
 
   const handleUploadReport = () => {
     if (!apt) return
-    const hasExisting = (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0) || apt.reportText
-    if (hasExisting) {
-      uploadReport(apt.id, reportText, reportImageData, invoiceImageData, true)
-    } else {
-      uploadReport(apt.id, reportText, reportImageData, invoiceImageData, false)
+    const hasExisting = !!(apt.reportText || (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0))
+    uploadReport(apt.id, reportText, newReportImages, newInvoiceImages, hasExisting)
+    setReportText(''); setNewReportImages([]); setNewInvoiceImages([])
+  }
+
+  const handleDeleteImage = (type: 'report' | 'invoice', index: number) => {
+    if (!apt) return
+    if (confirm('确定删除此图片？')) deleteImage(apt.id, type, index)
+  }
+
+  const handleReplaceImage = async (type: 'report' | 'invoice', index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !apt) return
+    const base64 = await readFileAsBase64(file)
+    replaceImage(apt.id, type, index, base64)
+    e.target.value = ''
+  }
+
+  const handleSendMessage = () => {
+    if (!apt || !msgText.trim()) return
+    const storeName = stores[0]?.name || '门店'
+    const msg: AppointmentMessage = {
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+      senderRole: 'store',
+      senderName: storeName,
+      content: msgText.trim(),
+      createdAt: new Date().toISOString(),
     }
-    setReportText(''); setReportImageData([]); setInvoiceImageData([])
+    addMessage(apt.id, msg)
+    setMsgText('')
   }
 
   const readFileAsBase64 = (file: File): Promise<string> => {
@@ -90,34 +119,42 @@ export default function OrderDetail() {
   const handleFileSelect = async (type: 'report' | 'invoice', e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
-    const setter = type === 'report' ? setReportImageData : setInvoiceImageData
-    const current = type === 'report' ? reportImageData : invoiceImageData
-    const newImages: string[] = [...current]
+    const setter = type === 'report' ? setNewReportImages : setNewInvoiceImages
+    const current = type === 'report' ? newReportImages : newInvoiceImages
+    const imgs: string[] = [...current]
     for (let i = 0; i < files.length; i++) {
-      const base64 = await readFileAsBase64(files[i])
-      newImages.push(base64)
+      imgs.push(await readFileAsBase64(files[i]))
     }
-    setter(newImages)
+    setter(imgs)
     e.target.value = ''
   }
 
   const removeNewImage = (type: 'report' | 'invoice', idx: number) => {
-    const setter = type === 'report' ? setReportImageData : setInvoiceImageData
+    const setter = type === 'report' ? setNewReportImages : setNewInvoiceImages
     setter((prev) => prev.filter((_, i) => i !== idx))
   }
 
-  const renderExistingImages = (images: string[], label: string) => (
+  const renderManagedImages = (images: string[], type: 'report' | 'invoice', label: string) => (
     <div className="flex gap-3 flex-wrap">
       {images.map((src, i) => (
-        <div key={`existing-${i}`} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+        <div key={`saved-${i}`} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50 group">
           <img src={src} alt={`${label}${i + 1}`} className="w-full h-full object-cover" />
-          <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] text-center py-0.5">已存档</div>
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+            <label className="cursor-pointer w-6 h-6 bg-white/90 rounded flex items-center justify-center" title="替换">
+              <RefreshCw size={11} className="text-blue-600" />
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleReplaceImage(type, i, e)} />
+            </label>
+            <button onClick={() => handleDeleteImage(type, i)} className="w-6 h-6 bg-white/90 rounded flex items-center justify-center" title="删除">
+              <X size={11} className="text-red-500" />
+            </button>
+          </div>
+          <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] text-center py-0.5">{i + 1}</div>
         </div>
       ))}
     </div>
   )
 
-  const renderUploadArea = (type: 'report' | 'invoice', images: string[]) => (
+  const renderNewUploadArea = (type: 'report' | 'invoice', images: string[]) => (
     <div className="flex gap-3 flex-wrap">
       {images.map((src, i) => (
         <div key={`new-${i}`} className="relative w-20 h-20 rounded-lg border border-accent/30 overflow-hidden bg-gray-50">
@@ -151,8 +188,9 @@ export default function OrderDetail() {
   }
 
   const timeline = apt.timeline || []
+  const messages = apt.messages || []
   const showReportUpload = apt.status === 'in_progress' || apt.status === 'completed'
-  const hasExistingReport = !!apt.reportText || (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0)
+  const hasExistingReport = !!(apt.reportText || (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0))
 
   return (
     <div className="space-y-6">
@@ -180,16 +218,23 @@ export default function OrderDetail() {
                 <div key={i} className="flex gap-4">
                   <div className="flex flex-col items-center">
                     <div className={`w-3 h-3 rounded-full shrink-0 mt-1.5 ${
-                      isLast ? 'bg-accent ring-4 ring-accent/20' : 'bg-accent'
+                      isLast ? 'bg-accent ring-4 ring-accent/20' : entry.status === 'reviewed' ? 'bg-emerald-500' : 'bg-accent'
                     }`} />
                     {!isLast && <div className="w-0.5 flex-1 bg-accent/30 my-1" />}
                   </div>
                   <div className="pb-4">
                     <div className="flex items-center gap-2">
                       <span className={`text-sm font-medium ${isLast ? 'text-primary' : 'text-gray-700'}`}>{label}</span>
-                      {isLast && <Check size={14} className="text-accent" />}
+                      {entry.status === 'reviewed' && existingReview && (
+                        <span className="text-xs text-amber-500">{existingReview.rating}星</span>
+                      )}
+                      {isLast && entry.status !== 'reviewed' && <Check size={14} className="text-accent" />}
+                      {entry.status === 'reviewed' && <Star size={14} className="fill-amber-400 text-amber-400" />}
                     </div>
                     <span className="text-xs text-gray-400">{formatTime(entry.timestamp)}</span>
+                    {entry.status === 'reviewed' && existingReview?.comment && (
+                      <p className="text-xs text-gray-500 mt-1 bg-gray-50 rounded px-2 py-1">{existingReview.comment}</p>
+                    )}
                   </div>
                 </div>
               )
@@ -232,32 +277,76 @@ export default function OrderDetail() {
         {apt.notes && <div><p className="text-sm text-gray-400 mb-1">备注</p><p className="text-gray-700">{apt.notes}</p></div>}
       </div>
 
-      {apt.reportText && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center gap-2 mb-3">
+      {(apt.reportText || (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0)) && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-5">
+          <div className="flex items-center gap-2">
             <FileText size={18} className="text-accent" />
-            <h3 className="font-semibold text-primary">检测报告</h3>
+            <h3 className="font-semibold text-primary">已上传资料</h3>
           </div>
-          <p className="text-gray-700 text-sm whitespace-pre-wrap">{apt.reportText}</p>
+          {apt.reportText && (
+            <div>
+              <p className="text-sm text-gray-500 mb-1">检测报告描述</p>
+              <p className="text-gray-700 text-sm whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{apt.reportText}</p>
+            </div>
+          )}
           {apt.reportImages && apt.reportImages.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs text-gray-400 mb-2">检测照片 ({apt.reportImages.length}张)</p>
-              {renderExistingImages(apt.reportImages, '检测照片')}
+            <div>
+              <p className="text-sm text-gray-500 mb-2">检测照片 ({apt.reportImages.length}张) <span className="text-xs text-gray-400">悬浮操作</span></p>
+              {renderManagedImages(apt.reportImages, 'report', '检测照片')}
+            </div>
+          )}
+          {apt.invoiceImages && apt.invoiceImages.length > 0 && (
+            <div>
+              <p className="text-sm text-gray-500 mb-2">发票照片 ({apt.invoiceImages.length}张) <span className="text-xs text-gray-400">悬浮操作</span></p>
+              {renderManagedImages(apt.invoiceImages, 'invoice', '发票')}
             </div>
           )}
         </div>
       )}
 
-      {apt.invoiceImages && apt.invoiceImages.length > 0 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center gap-2 mb-3">
-            <Receipt size={18} className="text-accent" />
-            <h3 className="font-semibold text-primary">发票照片</h3>
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <h3 className="font-semibold text-primary mb-4 flex items-center gap-2">
+          <MessageCircle size={18} className="text-accent" />
+          沟通消息
+        </h3>
+        {messages.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">暂无消息</p>
+        ) : (
+          <div className="space-y-3 mb-4 max-h-60 overflow-y-auto scrollbar-thin">
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex gap-2 ${msg.senderRole === 'store' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] rounded-xl px-3 py-2 ${
+                  msg.senderRole === 'store'
+                    ? 'bg-accent text-white'
+                    : 'bg-primary/5 text-gray-700'
+                }`}>
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <User size={10} />
+                    <span className="text-[10px] font-medium">{msg.senderName}</span>
+                    <span className={`text-[10px] ${msg.senderRole === 'store' ? 'text-white/60' : 'text-gray-400'}`}>
+                      {formatTime(msg.createdAt)}
+                    </span>
+                  </div>
+                  <p className="text-sm">{msg.content}</p>
+                </div>
+              </div>
+            ))}
           </div>
-          <p className="text-xs text-gray-400 mb-2">{apt.invoiceImages.length}张</p>
-          {renderExistingImages(apt.invoiceImages, '发票')}
+        )}
+        <div className="flex gap-2">
+          <input
+            value={msgText}
+            onChange={(e) => setMsgText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+            placeholder="输入消息..."
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent focus:border-accent outline-none"
+          />
+          <button onClick={handleSendMessage} disabled={!msgText.trim()}
+            className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <Send size={16} />
+          </button>
         </div>
-      )}
+      </div>
 
       <div className="flex items-center gap-2 flex-wrap">
         {apt.status === 'pending' && (
@@ -285,17 +374,29 @@ export default function OrderDetail() {
           </div>
           <div>
             <p className="text-sm text-gray-500 mb-2">报告图片 {apt.reportImages && apt.reportImages.length > 0 ? `(已有${apt.reportImages.length}张)` : ''}</p>
-            {renderUploadArea('report', reportImageData)}
+            {renderNewUploadArea('report', newReportImages)}
           </div>
           <div>
             <p className="text-sm text-gray-500 mb-2">发票图片 {apt.invoiceImages && apt.invoiceImages.length > 0 ? `(已有${apt.invoiceImages.length}张)` : ''}</p>
-            {renderUploadArea('invoice', invoiceImageData)}
+            {renderNewUploadArea('invoice', newInvoiceImages)}
           </div>
           <button onClick={handleUploadReport}
-            disabled={!reportText.trim() && reportImageData.length === 0 && invoiceImageData.length === 0}
+            disabled={!reportText.trim() && newReportImages.length === 0 && newInvoiceImages.length === 0}
             className="px-6 py-2.5 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed">
             {hasExistingReport ? '补充上传' : '上传报告'}
           </button>
+        </div>
+      )}
+
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] p-2">
+            <img src={previewImage} alt="预览" className="max-w-full max-h-[85vh] object-contain rounded-lg" />
+            <button onClick={() => setPreviewImage(null)}
+              className="absolute -top-2 -right-2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900">
+              <X size={18} />
+            </button>
+          </div>
         </div>
       )}
     </div>
