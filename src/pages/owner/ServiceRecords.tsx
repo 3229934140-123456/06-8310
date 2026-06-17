@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Plus, X, Car, Filter } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, X, Car, Filter, FileText, Receipt, ExternalLink } from 'lucide-react'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useServiceStore } from '@/store/useServiceStore'
@@ -33,6 +34,7 @@ const emptyForm = {
 }
 
 export default function ServiceRecords() {
+  const navigate = useNavigate()
   const { currentUser } = useAuthStore()
   const { vehicles, loadVehicles } = useVehicleStore()
   const { records, loadRecords, addRecord } = useServiceStore()
@@ -40,6 +42,7 @@ export default function ServiceRecords() {
   const [form, setForm] = useState(emptyForm)
   const [filterVehicle, setFilterVehicle] = useState('')
   const [filterType, setFilterType] = useState<'' | ServiceType>('')
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -159,13 +162,22 @@ export default function ServiceRecords() {
           {filtered.map((r) => {
             const badge = TYPE_BADGE[r.type]
             return (
-              <div key={r.id} className="bg-white rounded-xl p-5 shadow-sm border border-gray-100">
+              <div key={r.id} className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm text-gray-500">{r.serviceDate}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${badge.cls}`}>
                       {badge.label}
                     </span>
+                    {r.sourceAppointmentId && (
+                      <button
+                        onClick={() => navigate(`/owner/appointments/${r.sourceAppointmentId}`)}
+                        className="flex items-center gap-1 text-xs text-accent hover:text-accent-600 font-medium"
+                      >
+                        <ExternalLink size={12} />
+                        来源工单
+                      </button>
+                    )}
                   </div>
                   <span className="text-lg font-bold text-primary">¥{r.cost.toLocaleString()}</span>
                 </div>
@@ -177,13 +189,67 @@ export default function ServiceRecords() {
                     </span>
                   ))}
                 </div>
-                <div className="flex items-center gap-4 text-sm text-gray-400">
+                <div className="flex items-center gap-4 text-sm text-gray-400 mb-3">
                   <span>里程：{r.mileage.toLocaleString()} km</span>
                   {r.storeName && <span>门店：{r.storeName}</span>}
                 </div>
+                {(r.reportText || (r.reportImages && r.reportImages.length > 0) || (r.invoiceImages && r.invoiceImages.length > 0)) && (
+                  <div className="border-t border-gray-100 pt-3 space-y-2">
+                    {r.reportText && (
+                      <div className="flex gap-2">
+                        <FileText size={14} className="text-accent shrink-0 mt-0.5" />
+                        <p className="text-sm text-gray-600 line-clamp-2">{r.reportText}</p>
+                      </div>
+                    )}
+                    {r.reportImages && r.reportImages.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <FileText size={14} className="text-accent shrink-0 mt-1" />
+                        <div className="flex gap-2 flex-wrap">
+                          {r.reportImages.map((img, i) => (
+                            <img
+                              key={`r-${i}`}
+                              src={img}
+                              alt={`检测照片${i + 1}`}
+                              onClick={(e) => { e.stopPropagation(); setPreviewImage(img) }}
+                              className="w-16 h-16 object-cover rounded-lg border border-gray-100 cursor-pointer hover:opacity-80 transition-opacity"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {r.invoiceImages && r.invoiceImages.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <Receipt size={14} className="text-accent shrink-0 mt-1" />
+                        <div className="flex gap-2 flex-wrap">
+                          {r.invoiceImages.map((img, i) => (
+                            <img
+                              key={`i-${i}`}
+                              src={img}
+                              alt={`发票${i + 1}`}
+                              onClick={(e) => { e.stopPropagation(); setPreviewImage(img) }}
+                              className="w-16 h-16 object-cover rounded-lg border border-gray-100 cursor-pointer hover:opacity-80 transition-opacity"
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] p-2">
+            <img src={previewImage} alt="预览" className="max-w-full max-h-[85vh] object-contain rounded-lg" />
+            <button onClick={() => setPreviewImage(null)}
+              className="absolute -top-2 -right-2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900">
+              <X size={18} />
+            </button>
+          </div>
         </div>
       )}
 

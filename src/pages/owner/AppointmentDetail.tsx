@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Star, X, Check, FileText, Receipt, Clock, MessageCircle, Send, User } from 'lucide-react'
+import { ArrowLeft, Star, X, Check, FileText, Receipt, Clock, MessageCircle, Send, User, Coins } from 'lucide-react'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
@@ -114,6 +114,10 @@ export default function AppointmentDetail() {
 
   const timeline = apt.timeline || []
   const messages = apt.messages || []
+  const costItems = apt.costItems || []
+  const totalCost = costItems.reduce((sum, item) => sum + item.amount, 0)
+  const materialCost = costItems.filter(i => i.type === 'material').reduce((sum, item) => sum + item.amount, 0)
+  const laborCost = costItems.filter(i => i.type === 'labor').reduce((sum, item) => sum + item.amount, 0)
 
   return (
     <div className="space-y-6">
@@ -203,15 +207,17 @@ export default function AppointmentDetail() {
         )}
       </div>
 
-      {apt.reportText && (
+      {(apt.reportText || (apt.reportImages && apt.reportImages.length > 0)) && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <FileText size={18} className="text-accent" />
             <h3 className="font-semibold text-primary">检测报告</h3>
           </div>
-          <p className="text-gray-700 text-sm whitespace-pre-wrap">{apt.reportText}</p>
+          {apt.reportText && (
+            <p className="text-gray-700 text-sm whitespace-pre-wrap">{apt.reportText}</p>
+          )}
           {apt.reportImages && apt.reportImages.length > 0 && (
-            <div className="mt-3">
+            <div className={apt.reportText ? 'mt-3' : ''}>
               <p className="text-xs text-gray-400 mb-2">检测照片 ({apt.reportImages.length}张)</p>
               <div className="flex gap-3 flex-wrap">
                 {apt.reportImages.map((img, i) => (
@@ -221,6 +227,40 @@ export default function AppointmentDetail() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {costItems.length > 0 && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-primary flex items-center gap-2">
+              <Coins size={18} className="text-accent" />
+              费用明细
+            </h3>
+            <div className="text-right">
+              <div className="text-xs text-gray-400">合计</div>
+              <div className="text-xl font-bold text-accent">¥{totalCost.toLocaleString()}</div>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {costItems.map((item) => (
+              <div key={item.id} className="flex items-center justify-between text-sm px-2 py-1.5 rounded hover:bg-gray-50">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                    item.type === 'material' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'
+                  }`}>
+                    {item.type === 'material' ? '材料' : '工时'}
+                  </span>
+                  <span className="text-gray-700">{item.name}</span>
+                </div>
+                <span className="font-medium text-primary">¥{item.amount.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-end gap-4 text-xs text-gray-500 border-t border-gray-100 pt-2">
+            <span>材料费：¥{materialCost.toLocaleString()}</span>
+            <span>工时费：¥{laborCost.toLocaleString()}</span>
+          </div>
         </div>
       )}
 
@@ -286,7 +326,15 @@ export default function AppointmentDetail() {
 
       {apt.status === 'completed' && !alreadyReviewed && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
-          <h3 className="font-semibold text-primary">评价服务</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-primary">评价服务</h3>
+            {totalCost > 0 && (
+              <div className="text-right">
+                <div className="text-xs text-gray-400">本次服务</div>
+                <div className="text-lg font-bold text-accent">¥{totalCost.toLocaleString()}</div>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             {Array.from({ length: 5 }, (_, i) => (
               <Star key={i} size={28}

@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Check, Upload, FileText, Receipt, Clock, MessageCircle, Send, User, Star, X, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Check, Upload, FileText, Receipt, Clock, MessageCircle, Send, User, Star, X, RefreshCw, Plus, Trash2, Coins } from 'lucide-react'
 import { useStoreStore } from '@/store/useStoreStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useReviewStore } from '@/store/useReviewStore'
-import type { AppointmentMessage } from '@/types'
+import type { AppointmentMessage, CostItem } from '@/types'
 
 const STATUS_BADGE: Record<string, string> = {
   pending: 'bg-yellow-100 text-yellow-700',
@@ -35,7 +35,7 @@ export default function OrderDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { stores, loadStores } = useStoreStore()
-  const { appointments, loadAppointments, updateStatus, uploadReport, deleteImage, replaceImage, addMessage } = useAppointmentStore()
+  const { appointments, loadAppointments, updateStatus, uploadReport, deleteImage, replaceImage, addMessage, addCostItem, updateCostItem, deleteCostItem } = useAppointmentStore()
   const { vehicles, loadVehicles } = useVehicleStore()
   const { getReviewForAppointment, loadReviews } = useReviewStore()
 
@@ -44,6 +44,9 @@ export default function OrderDetail() {
   const [newInvoiceImages, setNewInvoiceImages] = useState<string[]>([])
   const [msgText, setMsgText] = useState('')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [newItemType, setNewItemType] = useState<'material' | 'labor'>('material')
+  const [newItemName, setNewItemName] = useState('')
+  const [newItemAmount, setNewItemAmount] = useState('')
   const reportInputRef = useRef<HTMLInputElement>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
 
@@ -72,6 +75,32 @@ export default function OrderDetail() {
   const handleReject = () => { if (apt) updateStatus(apt.id, 'rejected') }
   const handleStart = () => { if (apt) updateStatus(apt.id, 'in_progress') }
   const handleComplete = () => { if (apt) updateStatus(apt.id, 'completed') }
+
+  const handleAddCostItem = () => {
+    if (!apt || !newItemName.trim() || !newItemAmount || Number(newItemAmount) <= 0) return
+    const item: CostItem = {
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+      name: newItemName.trim(),
+      type: newItemType,
+      amount: Number(newItemAmount),
+    }
+    addCostItem(apt.id, item)
+    setNewItemName(''); setNewItemAmount('')
+  }
+
+  const handleUpdateCostItem = (itemId: string, field: keyof CostItem, value: string | number) => {
+    if (!apt) return
+    updateCostItem(apt.id, itemId, { [field]: value })
+  }
+
+  const handleDeleteCostItem = (itemId: string) => {
+    if (!apt) return
+    if (confirm('确定删除此费用项目？')) deleteCostItem(apt.id, itemId)
+  }
+
+  const totalCost = (apt?.costItems || []).reduce((sum, item) => sum + item.amount, 0)
+  const materialCost = (apt?.costItems || []).filter(i => i.type === 'material').reduce((sum, item) => sum + item.amount, 0)
+  const laborCost = (apt?.costItems || []).filter(i => i.type === 'labor').reduce((sum, item) => sum + item.amount, 0)
 
   const handleUploadReport = () => {
     if (!apt) return
@@ -299,6 +328,104 @@ export default function OrderDetail() {
             <div>
               <p className="text-sm text-gray-500 mb-2">发票照片 ({apt.invoiceImages.length}张) <span className="text-xs text-gray-400">悬浮操作</span></p>
               {renderManagedImages(apt.invoiceImages, 'invoice', '发票')}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(apt.status !== 'cancelled' && apt.status !== 'rejected') && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-primary flex items-center gap-2">
+              <Coins size={18} className="text-accent" />
+              费用明细
+            </h3>
+            {totalCost > 0 && (
+              <div className="text-right">
+                <div className="text-xs text-gray-400">合计</div>
+                <div className="text-xl font-bold text-accent">¥{totalCost.toLocaleString()}</div>
+              </div>
+            )}
+          </div>
+
+          {apt.costItems && apt.costItems.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-xs text-gray-400 grid grid-cols-[1fr_auto_auto_24px] gap-3 px-2">
+                <span>项目</span>
+                <span>类型</span>
+                <span>金额</span>
+                <span></span>
+              </div>
+              {apt.costItems.map((item) => (
+                <div key={item.id} className="grid grid-cols-[1fr_auto_auto_24px] gap-3 items-center px-2 py-1.5 rounded-lg hover:bg-gray-50">
+                  <input
+                    value={item.name}
+                    onChange={(e) => handleUpdateCostItem(item.id, 'name', e.target.value)}
+                    disabled={apt.status === 'completed'}
+                    className="text-sm bg-transparent border-b border-transparent hover:border-gray-300 focus:border-accent focus:outline-none disabled:cursor-default"
+                  />
+                  <select
+                    value={item.type}
+                    onChange={(e) => handleUpdateCostItem(item.id, 'type', e.target.value as 'material' | 'labor')}
+                    disabled={apt.status === 'completed'}
+                    className="text-xs px-2 py-0.5 border border-gray-200 rounded bg-white focus:ring-1 focus:ring-accent focus:border-accent outline-none disabled:cursor-default"
+                  >
+                    <option value="material">材料</option>
+                    <option value="labor">工时</option>
+                  </select>
+                  <input
+                    type="number"
+                    value={item.amount}
+                    onChange={(e) => handleUpdateCostItem(item.id, 'amount', Number(e.target.value))}
+                    disabled={apt.status === 'completed'}
+                    className="text-sm w-20 text-right bg-transparent border-b border-transparent hover:border-gray-300 focus:border-accent focus:outline-none disabled:cursor-default"
+                  />
+                  {apt.status !== 'completed' && (
+                    <button onClick={() => handleDeleteCostItem(item.id)} className="text-gray-400 hover:text-red-500 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              <div className="flex items-center justify-end gap-4 text-xs text-gray-500 border-t border-gray-100 pt-2 mt-2">
+                <span>材料费：¥{materialCost.toLocaleString()}</span>
+                <span>工时费：¥{laborCost.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
+
+          {apt.status !== 'completed' && (
+            <div className="border-t border-gray-100 pt-4">
+              <p className="text-sm text-gray-500 mb-2">添加费用项目</p>
+              <div className="flex gap-2 flex-wrap">
+                <select
+                  value={newItemType}
+                  onChange={(e) => setNewItemType(e.target.value as 'material' | 'labor')}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent focus:border-accent outline-none bg-white"
+                >
+                  <option value="material">材料费</option>
+                  <option value="labor">工时费</option>
+                </select>
+                <input
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  placeholder="项目名称"
+                  className="flex-1 min-w-[150px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent focus:border-accent outline-none"
+                />
+                <input
+                  type="number"
+                  value={newItemAmount}
+                  onChange={(e) => setNewItemAmount(e.target.value)}
+                  placeholder="金额"
+                  className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent focus:border-accent outline-none"
+                />
+                <button onClick={handleAddCostItem}
+                  disabled={!newItemName.trim() || !newItemAmount || Number(newItemAmount) <= 0}
+                  className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors flex items-center gap-1.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Plus size={16} />
+                  添加
+                </button>
+              </div>
             </div>
           )}
         </div>

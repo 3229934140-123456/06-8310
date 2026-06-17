@@ -32,6 +32,10 @@ export interface ServiceRecord {
   mileage: number
   serviceDate: string
   storeName?: string
+  sourceAppointmentId?: string
+  reportImages?: string[]
+  invoiceImages?: string[]
+  reportText?: string
 }
 
 export type ReminderType = 'maintenance' | 'insurance' | 'inspection' | 'appointment'
@@ -86,6 +90,13 @@ export interface AppointmentMessage {
   createdAt: string
 }
 
+export interface CostItem {
+  id: string
+  name: string
+  type: 'material' | 'labor'
+  amount: number
+}
+
 export interface Appointment {
   id: string
   vehicleId: string
@@ -100,6 +111,7 @@ export interface Appointment {
   createdAt: string
   timeline?: TimelineEntry[]
   messages?: AppointmentMessage[]
+  costItems?: CostItem[]
   reportText?: string
   reportImages?: string[]
   invoiceImages?: string[]
