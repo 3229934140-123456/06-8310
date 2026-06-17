@@ -4,9 +4,11 @@ import { Wrench, Shield, FileCheck, CheckCheck, Sparkles, Bell, Calendar } from 
 import { useAuthStore } from '@/store/useAuthStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useReminderStore } from '@/store/useReminderStore'
+import { useAppointmentStore } from '@/store/useAppointmentStore'
 import type { ReminderType, ReminderPriority } from '@/types'
 
 type TabFilter = '' | ReminderType
+type SortMode = 'time' | 'unread'
 
 const TAB_OPTIONS: { value: TabFilter; label: string }[] = [
   { value: '', label: '全部' },
@@ -42,30 +44,45 @@ const PRIORITY_LABEL: Record<ReminderPriority, string> = {
   low: '一般',
 }
 
+const PRIORITY_ORDER: Record<ReminderPriority, number> = { high: 0, medium: 1, low: 2 }
+
 export default function Reminders() {
   const navigate = useNavigate()
   const { currentUser } = useAuthStore()
   const { vehicles, loadVehicles } = useVehicleStore()
   const { reminders, loadReminders, markAsRead, generateReminders } = useReminderStore()
+  const { loadAppointments } = useAppointmentStore()
   const [tab, setTab] = useState<TabFilter>('')
+  const [vehicleFilter, setVehicleFilter] = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('unread')
 
   useEffect(() => {
     if (currentUser?.id) {
       loadVehicles(currentUser.id)
+      loadAppointments(currentUser.id)
       loadReminders(currentUser.id)
       generateReminders(currentUser.id)
     }
-  }, [currentUser?.id, loadVehicles, loadReminders, generateReminders])
+  }, [currentUser?.id, loadVehicles, loadReminders, generateReminders, loadAppointments])
 
   const getVehicleName = (vid: string) => {
     const v = vehicles.find((x) => x.id === vid)
     return v ? `${v.brand} ${v.model}` : '未知车辆'
   }
 
-  const filtered = reminders.filter((r) => {
-    if (tab && r.type !== tab) return false
-    return true
-  })
+  const filtered = reminders
+    .filter((r) => {
+      if (tab && r.type !== tab) return false
+      if (vehicleFilter && r.vehicleId !== vehicleFilter) return false
+      return true
+    })
+    .sort((a, b) => {
+      if (sortMode === 'unread') {
+        if (a.isRead !== b.isRead) return a.isRead ? 1 : -1
+        return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+      }
+      return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+    })
 
   const unreadCount = reminders.filter((r) => !r.isRead).length
 
@@ -75,6 +92,13 @@ export default function Reminders() {
 
   const handleGenerate = () => {
     if (currentUser?.id) generateReminders(currentUser.id)
+  }
+
+  const handleReminderClick = (r: typeof reminders[0]) => {
+    if (!r.isRead) markAsRead(r.id)
+    if (r.type === 'appointment' && r.appointmentId) {
+      navigate(`/owner/appointments/${r.appointmentId}`)
+    }
   }
 
   return (
@@ -107,20 +131,50 @@ export default function Reminders() {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-        {TAB_OPTIONS.map((opt) => (
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+          {TAB_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setTab(opt.value)}
+              className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                tab === opt.value
+                  ? 'bg-white text-primary shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <select
+          value={vehicleFilter}
+          onChange={(e) => setVehicleFilter(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-accent focus:border-accent outline-none"
+        >
+          <option value="">全部车辆</option>
+          {vehicles.map((v) => (
+            <option key={v.id} value={v.id}>{v.brand} {v.model} {v.plateNumber || ''}</option>
+          ))}
+        </select>
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
           <button
-            key={opt.value}
-            onClick={() => setTab(opt.value)}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === opt.value
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+            onClick={() => setSortMode('unread')}
+            className={`py-1.5 px-3 rounded-lg text-xs font-medium transition-colors ${
+              sortMode === 'unread' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'
             }`}
           >
-            {opt.label}
+            未读优先
           </button>
-        ))}
+          <button
+            onClick={() => setSortMode('time')}
+            className={`py-1.5 px-3 rounded-lg text-xs font-medium transition-colors ${
+              sortMode === 'time' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'
+            }`}
+          >
+            按优先级
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
@@ -133,12 +187,14 @@ export default function Reminders() {
         <div className="space-y-3">
           {filtered.map((r) => {
             const Icon = TYPE_ICON[r.type]
+            const clickable = r.type === 'appointment' && r.appointmentId
             return (
               <div
                 key={r.id}
+                onClick={() => handleReminderClick(r)}
                 className={`bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden ${
                   !r.isRead ? 'ring-1 ring-accent-200' : ''
-                }`}
+                } ${clickable ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
               >
                 <div className="flex">
                   <div className={`w-1.5 shrink-0 ${PRIORITY_BAR[r.priority]}`} />
@@ -163,6 +219,9 @@ export default function Reminders() {
                             </h3>
                             {!r.isRead && (
                               <span className="w-2 h-2 rounded-full bg-accent shrink-0" />
+                            )}
+                            {clickable && (
+                              <span className="text-xs text-accent">点击查看 →</span>
                             )}
                           </div>
                           {r.message && (
@@ -193,7 +252,7 @@ export default function Reminders() {
                         <div className="flex gap-2">
                           {r.type === 'maintenance' && (
                             <button
-                              onClick={() => navigate(`/owner/appointments?vehicleId=${r.vehicleId}`)}
+                              onClick={(e) => { e.stopPropagation(); navigate(`/owner/appointments?vehicleId=${r.vehicleId}`) }}
                               className="text-xs text-accent hover:text-accent-600 font-medium"
                             >
                               去预约
@@ -201,7 +260,7 @@ export default function Reminders() {
                           )}
                           {!r.isRead && (
                             <button
-                              onClick={() => markAsRead(r.id)}
+                              onClick={(e) => { e.stopPropagation(); markAsRead(r.id) }}
                               className="text-xs text-gray-400 hover:text-gray-600"
                             >
                               标记已读

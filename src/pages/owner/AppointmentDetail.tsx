@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Star, X, Check, FileText, Receipt } from 'lucide-react'
+import { ArrowLeft, Star, X, Check, FileText, Receipt, Clock } from 'lucide-react'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useStoreStore } from '@/store/useStoreStore'
 import { useReviewStore } from '@/store/useReviewStore'
-import type { Review } from '@/types'
+import type { Review, AppointmentStatus } from '@/types'
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: '待确认', confirmed: '已确认', in_progress: '进行中',
+  pending: '待确认', confirmed: '已确认', in_progress: '维修中',
   completed: '已完成', cancelled: '已取消', rejected: '已拒绝',
+  report_uploaded: '报告已上传',
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -22,7 +23,13 @@ const STATUS_BADGE: Record<string, string> = {
   rejected: 'bg-red-100 text-red-700',
 }
 
-const TIMELINE_STEPS = ['pending', 'confirmed', 'in_progress', 'completed']
+const TIMELINE_STEP_LABELS: Record<string, string> = {
+  pending: '提交预约',
+  confirmed: '门店确认',
+  in_progress: '开始维修',
+  report_uploaded: '上传报告',
+  completed: '完工评价',
+}
 
 const REVIEW_TAGS = ['服务专业', '价格透明', '环境整洁', '效率高', '等位久', '态度一般']
 
@@ -72,7 +79,10 @@ export default function AppointmentDetail() {
     setRating(0); setComment(''); setSelectedTags([])
   }
 
-  const getTimelineIndex = (status: string) => TIMELINE_STEPS.indexOf(status)
+  const formatTime = (ts: string) => {
+    const d = new Date(ts)
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
 
   if (!apt) {
     return (
@@ -83,8 +93,7 @@ export default function AppointmentDetail() {
     )
   }
 
-  const tIdx = getTimelineIndex(apt.status)
-  const isTimelineActive = tIdx >= 0
+  const timeline = apt.timeline || []
 
   return (
     <div className="space-y-6">
@@ -98,25 +107,34 @@ export default function AppointmentDetail() {
         </span>
       </div>
 
-      {isTimelineActive && (
+      {timeline.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between max-w-md mx-auto">
-            {TIMELINE_STEPS.map((s, i) => (
-              <div key={s} className="flex items-center flex-1">
-                <div className="flex flex-col items-center">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                    i <= tIdx ? 'bg-accent text-white' : 'bg-gray-200 text-gray-400'}`}>
-                    {i < tIdx ? <Check size={14} /> : i + 1}
+          <h3 className="font-semibold text-primary mb-4 flex items-center gap-2">
+            <Clock size={18} className="text-accent" />
+            进度动态
+          </h3>
+          <div className="space-y-0">
+            {timeline.map((entry, i) => {
+              const isLast = i === timeline.length - 1
+              const label = TIMELINE_STEP_LABELS[entry.status] || STATUS_LABEL[entry.status] || entry.status
+              return (
+                <div key={i} className="flex gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-3 h-3 rounded-full shrink-0 mt-1.5 ${
+                      isLast ? 'bg-accent ring-4 ring-accent/20' : 'bg-accent'
+                    }`} />
+                    {!isLast && <div className="w-0.5 flex-1 bg-accent/30 my-1" />}
                   </div>
-                  <span className={`text-xs mt-1.5 ${i <= tIdx ? 'text-accent font-medium' : 'text-gray-400'}`}>
-                    {STATUS_LABEL[s]}
-                  </span>
+                  <div className={`pb-4 ${isLast ? '' : ''}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${isLast ? 'text-primary' : 'text-gray-700'}`}>{label}</span>
+                      {isLast && <Check size={14} className="text-accent" />}
+                    </div>
+                    <span className="text-xs text-gray-400">{formatTime(entry.timestamp)}</span>
+                  </div>
                 </div>
-                {i < TIMELINE_STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-2 ${i < tIdx ? 'bg-accent' : 'bg-gray-200'}`} />
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -166,11 +184,14 @@ export default function AppointmentDetail() {
           </div>
           <p className="text-gray-700 text-sm whitespace-pre-wrap">{apt.reportText}</p>
           {apt.reportImages && apt.reportImages.length > 0 && (
-            <div className="flex gap-3 mt-3 flex-wrap">
-              {apt.reportImages.map((img, i) => (
-                <img key={i} src={img} alt={`报告图片${i + 1}`} onClick={() => setPreviewImage(img)}
-                  className="w-24 h-24 object-cover rounded-lg border border-gray-100 cursor-pointer hover:opacity-80 transition-opacity" />
-              ))}
+            <div className="mt-3">
+              <p className="text-xs text-gray-400 mb-2">检测照片 ({apt.reportImages.length}张)</p>
+              <div className="flex gap-3 flex-wrap">
+                {apt.reportImages.map((img, i) => (
+                  <img key={i} src={img} alt={`检测照片${i + 1}`} onClick={() => setPreviewImage(img)}
+                    className="w-24 h-24 object-cover rounded-lg border border-gray-100 cursor-pointer hover:opacity-80 transition-opacity" />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -180,8 +201,9 @@ export default function AppointmentDetail() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <Receipt size={18} className="text-accent" />
-            <h3 className="font-semibold text-primary">发票</h3>
+            <h3 className="font-semibold text-primary">发票照片</h3>
           </div>
+          <p className="text-xs text-gray-400 mb-2">{apt.invoiceImages.length}张</p>
           <div className="flex gap-3 flex-wrap">
             {apt.invoiceImages.map((img, i) => (
               <img key={i} src={img} alt={`发票${i + 1}`} onClick={() => setPreviewImage(img)}

@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Check, Upload, FileText, Receipt } from 'lucide-react'
+import { ArrowLeft, Check, Upload, FileText, Receipt, Clock } from 'lucide-react'
 import { useStoreStore } from '@/store/useStoreStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
@@ -17,9 +17,16 @@ const STATUS_BADGE: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   pending: '待确认', confirmed: '已确认', in_progress: '维修中',
   completed: '已完成', cancelled: '已取消', rejected: '已拒绝',
+  report_uploaded: '报告已上传',
 }
 
-const TIMELINE_STEPS = ['pending', 'confirmed', 'in_progress', 'completed']
+const TIMELINE_STEP_LABELS: Record<string, string> = {
+  pending: '提交预约',
+  confirmed: '门店确认',
+  in_progress: '开始维修',
+  report_uploaded: '上传报告',
+  completed: '完工',
+}
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>()
@@ -33,6 +40,7 @@ export default function OrderDetail() {
   const [invoiceImageData, setInvoiceImageData] = useState<string[]>([])
   const reportInputRef = useRef<HTMLInputElement>(null)
   const invoiceInputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => { loadStores() }, [loadStores])
   const storeId = stores[0]?.id
 
@@ -48,14 +56,25 @@ export default function OrderDetail() {
   const apt = appointments.find((a) => a.id === id)
   const vehicle = apt ? vehicles.find((v) => v.id === apt.vehicleId) : null
 
+  useEffect(() => {
+    if (apt) {
+      setReportText(apt.reportText || '')
+    }
+  }, [apt?.id])
+
   const handleConfirm = () => { if (apt) updateStatus(apt.id, 'confirmed') }
   const handleReject = () => { if (apt) updateStatus(apt.id, 'rejected') }
   const handleStart = () => { if (apt) updateStatus(apt.id, 'in_progress') }
   const handleComplete = () => { if (apt) updateStatus(apt.id, 'completed') }
 
   const handleUploadReport = () => {
-    if (!apt || !reportText.trim()) return
-    uploadReport(apt.id, reportText, reportImageData, invoiceImageData)
+    if (!apt) return
+    const hasExisting = (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0) || apt.reportText
+    if (hasExisting) {
+      uploadReport(apt.id, reportText, reportImageData, invoiceImageData, true)
+    } else {
+      uploadReport(apt.id, reportText, reportImageData, invoiceImageData, false)
+    }
     setReportText(''); setReportImageData([]); setInvoiceImageData([])
   }
 
@@ -82,17 +101,28 @@ export default function OrderDetail() {
     e.target.value = ''
   }
 
-  const removeImage = (type: 'report' | 'invoice', idx: number) => {
+  const removeNewImage = (type: 'report' | 'invoice', idx: number) => {
     const setter = type === 'report' ? setReportImageData : setInvoiceImageData
     setter((prev) => prev.filter((_, i) => i !== idx))
   }
 
+  const renderExistingImages = (images: string[], label: string) => (
+    <div className="flex gap-3 flex-wrap">
+      {images.map((src, i) => (
+        <div key={`existing-${i}`} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+          <img src={src} alt={`${label}${i + 1}`} className="w-full h-full object-cover" />
+          <div className="absolute bottom-0 left-0 right-0 bg-black/40 text-white text-[9px] text-center py-0.5">已存档</div>
+        </div>
+      ))}
+    </div>
+  )
+
   const renderUploadArea = (type: 'report' | 'invoice', images: string[]) => (
     <div className="flex gap-3 flex-wrap">
       {images.map((src, i) => (
-        <div key={i} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+        <div key={`new-${i}`} className="relative w-20 h-20 rounded-lg border border-accent/30 overflow-hidden bg-gray-50">
           <img src={src} alt="" className="w-full h-full object-cover" />
-          <button onClick={() => removeImage(type, i)}
+          <button onClick={() => removeNewImage(type, i)}
             className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] leading-none flex items-center justify-center">×</button>
         </div>
       ))}
@@ -106,6 +136,11 @@ export default function OrderDetail() {
     </div>
   )
 
+  const formatTime = (ts: string) => {
+    const d = new Date(ts)
+    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
   if (!apt) {
     return (
       <div className="text-center py-20 text-gray-400">
@@ -115,9 +150,9 @@ export default function OrderDetail() {
     )
   }
 
-  const tIdx = TIMELINE_STEPS.indexOf(apt.status)
-  const isTimelineActive = tIdx >= 0
+  const timeline = apt.timeline || []
   const showReportUpload = apt.status === 'in_progress' || apt.status === 'completed'
+  const hasExistingReport = !!apt.reportText || (apt.reportImages && apt.reportImages.length > 0) || (apt.invoiceImages && apt.invoiceImages.length > 0)
 
   return (
     <div className="space-y-6">
@@ -131,25 +166,34 @@ export default function OrderDetail() {
         </span>
       </div>
 
-      {isTimelineActive && (
+      {timeline.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between max-w-md mx-auto">
-            {TIMELINE_STEPS.map((s, i) => (
-              <div key={s} className="flex items-center flex-1">
-                <div className="flex flex-col items-center">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                    i <= tIdx ? 'bg-accent text-white' : 'bg-gray-200 text-gray-400'}`}>
-                    {i < tIdx ? <Check size={14} /> : i + 1}
+          <h3 className="font-semibold text-primary mb-4 flex items-center gap-2">
+            <Clock size={18} className="text-accent" />
+            进度动态
+          </h3>
+          <div className="space-y-0">
+            {timeline.map((entry, i) => {
+              const isLast = i === timeline.length - 1
+              const label = TIMELINE_STEP_LABELS[entry.status] || STATUS_LABEL[entry.status] || entry.status
+              return (
+                <div key={i} className="flex gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className={`w-3 h-3 rounded-full shrink-0 mt-1.5 ${
+                      isLast ? 'bg-accent ring-4 ring-accent/20' : 'bg-accent'
+                    }`} />
+                    {!isLast && <div className="w-0.5 flex-1 bg-accent/30 my-1" />}
                   </div>
-                  <span className={`text-xs mt-1.5 ${i <= tIdx ? 'text-accent font-medium' : 'text-gray-400'}`}>
-                    {STATUS_LABEL[s]}
-                  </span>
+                  <div className="pb-4">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${isLast ? 'text-primary' : 'text-gray-700'}`}>{label}</span>
+                      {isLast && <Check size={14} className="text-accent" />}
+                    </div>
+                    <span className="text-xs text-gray-400">{formatTime(entry.timestamp)}</span>
+                  </div>
                 </div>
-                {i < TIMELINE_STEPS.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-2 ${i < tIdx ? 'bg-accent' : 'bg-gray-200'}`} />
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -196,10 +240,9 @@ export default function OrderDetail() {
           </div>
           <p className="text-gray-700 text-sm whitespace-pre-wrap">{apt.reportText}</p>
           {apt.reportImages && apt.reportImages.length > 0 && (
-            <div className="flex gap-3 mt-3 flex-wrap">
-              {apt.reportImages.map((img, i) => (
-                <img key={i} src={img} alt={`报告${i + 1}`} className="w-24 h-24 object-cover rounded-lg border border-gray-100" />
-              ))}
+            <div className="mt-3">
+              <p className="text-xs text-gray-400 mb-2">检测照片 ({apt.reportImages.length}张)</p>
+              {renderExistingImages(apt.reportImages, '检测照片')}
             </div>
           )}
         </div>
@@ -209,13 +252,10 @@ export default function OrderDetail() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <Receipt size={18} className="text-accent" />
-            <h3 className="font-semibold text-primary">发票</h3>
+            <h3 className="font-semibold text-primary">发票照片</h3>
           </div>
-          <div className="flex gap-3 flex-wrap">
-            {apt.invoiceImages.map((img, i) => (
-              <img key={i} src={img} alt={`发票${i + 1}`} className="w-24 h-24 object-cover rounded-lg border border-gray-100" />
-            ))}
-          </div>
+          <p className="text-xs text-gray-400 mb-2">{apt.invoiceImages.length}张</p>
+          {renderExistingImages(apt.invoiceImages, '发票')}
         </div>
       )}
 
@@ -236,24 +276,25 @@ export default function OrderDetail() {
 
       {showReportUpload && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 space-y-5">
-          <h3 className="font-semibold text-primary">上传报告</h3>
+          <h3 className="font-semibold text-primary">{hasExistingReport ? '补充上传' : '上传报告'}</h3>
           <div>
             <p className="text-sm text-gray-500 mb-2">维修报告描述</p>
             <textarea value={reportText} onChange={(e) => setReportText(e.target.value)} rows={4}
-              placeholder="请输入维修报告内容..."
+              placeholder={apt.reportText ? '留空保留原有内容，输入新内容则替换' : '请输入维修报告内容...'}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-accent focus:border-accent outline-none resize-none" />
           </div>
           <div>
-            <p className="text-sm text-gray-500 mb-2">报告图片</p>
+            <p className="text-sm text-gray-500 mb-2">报告图片 {apt.reportImages && apt.reportImages.length > 0 ? `(已有${apt.reportImages.length}张)` : ''}</p>
             {renderUploadArea('report', reportImageData)}
           </div>
           <div>
-            <p className="text-sm text-gray-500 mb-2">发票图片</p>
+            <p className="text-sm text-gray-500 mb-2">发票图片 {apt.invoiceImages && apt.invoiceImages.length > 0 ? `(已有${apt.invoiceImages.length}张)` : ''}</p>
             {renderUploadArea('invoice', invoiceImageData)}
           </div>
-          <button onClick={handleUploadReport} disabled={!reportText.trim()}
+          <button onClick={handleUploadReport}
+            disabled={!reportText.trim() && reportImageData.length === 0 && invoiceImageData.length === 0}
             className="px-6 py-2.5 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-            上传报告
+            {hasExistingReport ? '补充上传' : '上传报告'}
           </button>
         </div>
       )}

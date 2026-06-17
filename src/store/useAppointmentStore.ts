@@ -1,12 +1,12 @@
 import { create } from 'zustand'
-import type { Appointment, AppointmentStatus } from '@/types'
+import type { Appointment, AppointmentStatus, TimelineEntry } from '@/types'
 
 interface AppointmentState {
   appointments: Appointment[]
   loadAppointments: (userId?: string, storeId?: string) => void
   addAppointment: (apt: Appointment) => void
   updateStatus: (id: string, status: AppointmentStatus) => void
-  uploadReport: (id: string, reportText: string, reportImages: string[], invoiceImages: string[]) => void
+  uploadReport: (id: string, reportText: string, reportImages: string[], invoiceImages: string[], append?: boolean) => void
 }
 
 const STORAGE_KEY = 'autoCare_appointments'
@@ -70,6 +70,7 @@ function addAppointmentReminder(apt: Appointment, status: AppointmentStatus) {
       dueDate: apt.appointmentDate,
       isRead: false,
       priority,
+      appointmentId: apt.id,
       _dedupKey: dedupKey,
     })
     localStorage.setItem(REMINDERS_KEY, JSON.stringify(reminders))
@@ -105,6 +106,7 @@ function generateTodayAppointmentReminders() {
         dueDate: today,
         isRead: false,
         priority: 'high',
+        appointmentId: apt.id,
         _dedupKey: dedupKey,
       })
     }
@@ -124,33 +126,66 @@ export const useAppointmentStore = create<AppointmentState>((set) => ({
   },
 
   addAppointment: (apt: Appointment) => {
+    const withTimeline: Appointment = {
+      ...apt,
+      timeline: [{ status: 'pending', timestamp: apt.createdAt || new Date().toISOString() }],
+    }
     const all = readFromStorage()
-    all.push(apt)
+    all.push(withTimeline)
     writeToStorage(all)
-    set((state) => ({ appointments: [...state.appointments, apt] }))
+    set((state) => ({ appointments: [...state.appointments, withTimeline] }))
   },
 
   updateStatus: (id: string, status: AppointmentStatus) => {
     const all = readFromStorage()
-    const apt = all.find((a) => a.id === id)
-    if (apt) addAppointmentReminder(apt, status)
-    const updated = all.map((a) => (a.id === id ? { ...a, status } : a))
-    writeToStorage(updated)
-    set((state) => ({
-      appointments: state.appointments.map((a) => (a.id === id ? { ...a, status } : a)),
-    }))
-  },
-
-  uploadReport: (id: string, reportText: string, reportImages: string[], invoiceImages: string[]) => {
-    const all = readFromStorage()
-    const updated = all.map((a) =>
-      a.id === id ? { ...a, reportText, reportImages, invoiceImages } : a
-    )
+    const entry: TimelineEntry = { status, timestamp: new Date().toISOString() }
+    const updated = all.map((a) => {
+      if (a.id !== id) return a
+      addAppointmentReminder(a, status)
+      return { ...a, status, timeline: [...(a.timeline || []), entry] }
+    })
     writeToStorage(updated)
     set((state) => ({
       appointments: state.appointments.map((a) =>
-        a.id === id ? { ...a, reportText, reportImages, invoiceImages } : a
+        a.id === id ? { ...a, status, timeline: [...(a.timeline || []), entry] } : a
       ),
+    }))
+  },
+
+  uploadReport: (id: string, reportText: string, reportImages: string[], invoiceImages: string[], append?: boolean) => {
+    const all = readFromStorage()
+    const hasReportEntry = all.find((a) => a.id === id)?.timeline?.some((t) => t.status === 'report_uploaded')
+    const timelineEntry: TimelineEntry | null = hasReportEntry ? null : { status: 'report_uploaded', timestamp: new Date().toISOString() }
+    const updated = all.map((a) => {
+      if (a.id !== id) return a
+      const newTimeline = timelineEntry ? [...(a.timeline || []), timelineEntry] : a.timeline
+      if (append) {
+        return {
+          ...a,
+          reportText: reportText || a.reportText,
+          reportImages: [...(a.reportImages || []), ...reportImages],
+          invoiceImages: [...(a.invoiceImages || []), ...invoiceImages],
+          timeline: newTimeline,
+        }
+      }
+      return { ...a, reportText, reportImages, invoiceImages, timeline: newTimeline }
+    })
+    writeToStorage(updated)
+    set((state) => ({
+      appointments: state.appointments.map((a) => {
+        if (a.id !== id) return a
+        const newTimeline = timelineEntry ? [...(a.timeline || []), timelineEntry] : a.timeline
+        if (append) {
+          return {
+            ...a,
+            reportText: reportText || a.reportText,
+            reportImages: [...(a.reportImages || []), ...reportImages],
+            invoiceImages: [...(a.invoiceImages || []), ...invoiceImages],
+            timeline: newTimeline,
+          }
+        }
+        return { ...a, reportText, reportImages, invoiceImages, timeline: newTimeline }
+      }),
     }))
   },
 }))

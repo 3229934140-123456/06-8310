@@ -47,6 +47,7 @@ export interface Reminder {
   dueMileage?: number
   isRead: boolean
   priority: ReminderPriority
+  appointmentId?: string
 }
 
 export interface Store {
@@ -71,6 +72,11 @@ export type AppointmentStatus =
   | 'cancelled'
   | 'rejected'
 
+export interface TimelineEntry {
+  status: AppointmentStatus | 'report_uploaded'
+  timestamp: string
+}
+
 export interface Appointment {
   id: string
   vehicleId: string
@@ -83,6 +89,7 @@ export interface Appointment {
   status: AppointmentStatus
   notes?: string
   createdAt: string
+  timeline?: TimelineEntry[]
   reportText?: string
   reportImages?: string[]
   invoiceImages?: string[]

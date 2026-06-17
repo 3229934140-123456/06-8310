@@ -742,7 +742,7 @@ export const mockReviews: Review[] = [
 ]
 
 export function initMockData(): void {
-  const VERSION = 'v2'
+  const VERSION = 'v3'
   const storedVersion = localStorage.getItem('autoCare_version')
   if (localStorage.getItem('autoCare_initialized') && storedVersion === VERSION) {
     return
