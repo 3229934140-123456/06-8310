@@ -742,7 +742,9 @@ export const mockReviews: Review[] = [
 ]
 
 export function initMockData(): void {
-  if (localStorage.getItem('autoCare_initialized')) {
+  const VERSION = 'v2'
+  const storedVersion = localStorage.getItem('autoCare_version')
+  if (localStorage.getItem('autoCare_initialized') && storedVersion === VERSION) {
     return
   }
 
@@ -755,4 +757,5 @@ export function initMockData(): void {
   localStorage.setItem('autoCare_reviews', JSON.stringify(mockReviews))
 
   localStorage.setItem('autoCare_initialized', 'true')
+  localStorage.setItem('autoCare_version', VERSION)
 }

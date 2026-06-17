@@ -94,59 +94,74 @@ export const useReminderStore = create<ReminderState>((set) => ({
       type: string
     }>(RECORDS_KEY)
 
-    const newReminders: Reminder[] = []
     const allReminders = readFromStorage<Reminder>(STORAGE_KEY)
 
-    const existingKeys = new Set(
-      allReminders.map((r) => `${r.vehicleId}_${r.type}_${r.title}`)
-    )
+    const desiredKeys = new Set<string>()
+
+    const pendingNew: { key: string; reminder: Omit<Reminder, 'id'> }[] = []
 
     for (const vehicle of userVehicles) {
       const vehicleLabel = `${vehicle.brand} ${vehicle.model}`
 
       if (vehicle.insuranceExpiry) {
-        const key = `${vehicle.id}_insurance_${vehicleLabel}保险到期`
-        if (!existingKeys.has(key)) {
-          let priority: ReminderPriority = 'low'
-          if (isOverdue(vehicle.insuranceExpiry)) {
-            priority = 'high'
-          } else if (isWithinDays(vehicle.insuranceExpiry, 30)) {
-            priority = 'medium'
-          }
-          if (priority !== 'low') {
-            newReminders.push({
-              id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-              vehicleId: vehicle.id,
-              type: 'insurance',
-              title: `${vehicleLabel}保险即将到期`,
-              message: `您的${vehicleLabel}保险将于${vehicle.insuranceExpiry}到期`,
-              dueDate: vehicle.insuranceExpiry,
-              isRead: false,
-              priority,
+        const key = `${vehicle.id}_insurance`
+        desiredKeys.add(key)
+        let priority: ReminderPriority = 'low'
+        if (isOverdue(vehicle.insuranceExpiry)) {
+          priority = 'high'
+        } else if (isWithinDays(vehicle.insuranceExpiry, 30)) {
+          priority = 'medium'
+        }
+        if (priority !== 'low') {
+          const existing = allReminders.find((r) => `${r.vehicleId}_${r.type}` === key)
+          if (existing) {
+            const updated = { ...existing, priority, isRead: false, dueDate: vehicle.insuranceExpiry, message: `您的${vehicleLabel}保险将于${vehicle.insuranceExpiry}到期`, title: `${vehicleLabel}保险即将到期` }
+            const idx = allReminders.indexOf(existing)
+            allReminders[idx] = updated
+          } else {
+            pendingNew.push({
+              key,
+              reminder: {
+                vehicleId: vehicle.id,
+                type: 'insurance',
+                title: `${vehicleLabel}保险即将到期`,
+                message: `您的${vehicleLabel}保险将于${vehicle.insuranceExpiry}到期`,
+                dueDate: vehicle.insuranceExpiry,
+                isRead: false,
+                priority,
+              },
             })
           }
         }
       }
 
       if (vehicle.inspectionExpiry) {
-        const key = `${vehicle.id}_inspection_${vehicleLabel}年检到期`
-        if (!existingKeys.has(key)) {
-          let priority: ReminderPriority = 'low'
-          if (isOverdue(vehicle.inspectionExpiry)) {
-            priority = 'high'
-          } else if (isWithinDays(vehicle.inspectionExpiry, 30)) {
-            priority = 'medium'
-          }
-          if (priority !== 'low') {
-            newReminders.push({
-              id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-              vehicleId: vehicle.id,
-              type: 'inspection',
-              title: `${vehicleLabel}年检即将到期`,
-              message: `您的${vehicleLabel}年检将于${vehicle.inspectionExpiry}到期`,
-              dueDate: vehicle.inspectionExpiry,
-              isRead: false,
-              priority,
+        const key = `${vehicle.id}_inspection`
+        desiredKeys.add(key)
+        let priority: ReminderPriority = 'low'
+        if (isOverdue(vehicle.inspectionExpiry)) {
+          priority = 'high'
+        } else if (isWithinDays(vehicle.inspectionExpiry, 30)) {
+          priority = 'medium'
+        }
+        if (priority !== 'low') {
+          const existing = allReminders.find((r) => `${r.vehicleId}_${r.type}` === key)
+          if (existing) {
+            const updated = { ...existing, priority, isRead: false, dueDate: vehicle.inspectionExpiry, message: `您的${vehicleLabel}年检将于${vehicle.inspectionExpiry}到期`, title: `${vehicleLabel}年检即将到期` }
+            const idx = allReminders.indexOf(existing)
+            allReminders[idx] = updated
+          } else {
+            pendingNew.push({
+              key,
+              reminder: {
+                vehicleId: vehicle.id,
+                type: 'inspection',
+                title: `${vehicleLabel}年检即将到期`,
+                message: `您的${vehicleLabel}年检将于${vehicle.inspectionExpiry}到期`,
+                dueDate: vehicle.inspectionExpiry,
+                isRead: false,
+                priority,
+              },
             })
           }
         }
@@ -155,8 +170,8 @@ export const useReminderStore = create<ReminderState>((set) => ({
       const vehicleRecords = records.filter((r) => r.vehicleId === vehicle.id)
 
       for (const interval of MAINTENANCE_INTERVALS) {
-        const key = `${vehicle.id}_maintenance_${interval.label}`
-        if (existingKeys.has(key)) continue
+        const key = `${vehicle.id}_maintenance_${interval.keyword}`
+        desiredKeys.add(key)
 
         const lastRecord = vehicleRecords
           .filter((r) => r.items.some((item) => item.includes(interval.keyword)))
@@ -174,24 +189,53 @@ export const useReminderStore = create<ReminderState>((set) => ({
         }
 
         if (priority !== 'low') {
-          newReminders.push({
-            id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-            vehicleId: vehicle.id,
-            type: 'maintenance',
-            title: `${vehicleLabel}${interval.label}提醒`,
-            message: `您的${vehicleLabel}已行驶${vehicle.currentMileage}km，${interval.label}里程为${nextDueMileage}km`,
-            dueMileage: nextDueMileage,
-            isRead: false,
-            priority,
-          })
+          const existing = allReminders.find((r) => `${r.vehicleId}_${r.type}_${(r as any).maintenanceKeyword}` === key || `${r.vehicleId}_maintenance` === `${vehicle.id}_maintenance` && r.title.includes(interval.label))
+          if (existing) {
+            const updated = { ...existing, priority, isRead: false, dueMileage: nextDueMileage, message: `您的${vehicleLabel}已行驶${vehicle.currentMileage}km，${interval.label}里程为${nextDueMileage}km`, title: `${vehicleLabel}${interval.label}提醒` }
+            const idx = allReminders.indexOf(existing)
+            allReminders[idx] = updated
+          } else {
+            pendingNew.push({
+              key,
+              reminder: {
+                vehicleId: vehicle.id,
+                type: 'maintenance',
+                title: `${vehicleLabel}${interval.label}提醒`,
+                message: `您的${vehicleLabel}已行驶${vehicle.currentMileage}km，${interval.label}里程为${nextDueMileage}km`,
+                dueMileage: nextDueMileage,
+                isRead: false,
+                priority,
+              },
+            })
+          }
         }
       }
     }
 
-    if (newReminders.length > 0) {
-      const merged = [...allReminders, ...newReminders]
-      writeToStorage(merged)
-      set((state) => ({ reminders: [...state.reminders, ...newReminders] }))
+    const staleIds = new Set<string>()
+    for (const r of allReminders) {
+      const userVehicleIds = new Set(userVehicles.map((v) => v.id))
+      if (!userVehicleIds.has(r.vehicleId)) continue
+      let rKey: string
+      if (r.type === 'maintenance') {
+        const keyword = MAINTENANCE_INTERVALS.find((m) => r.title.includes(m.label))?.keyword || ''
+        rKey = `${r.vehicleId}_maintenance_${keyword}`
+      } else {
+        rKey = `${r.vehicleId}_${r.type}`
+      }
+      if (r.priority === 'low' || !desiredKeys.has(rKey)) {
+        staleIds.add(r.id)
+      }
     }
+
+    const kept = allReminders.filter((r) => !staleIds.has(r.id))
+    const newReminders: Reminder[] = pendingNew.map((p) => ({
+      ...p.reminder,
+      id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    }))
+
+    const merged = [...kept, ...newReminders]
+    writeToStorage(merged)
+    set({ reminders: merged.filter((r) => userVehicles.some((v) => v.id === r.vehicleId)) })
   },
 }))

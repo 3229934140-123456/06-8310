@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ArrowLeft, Check, Upload, ImagePlus, FileText, Receipt } from 'lucide-react'
+import { ArrowLeft, Check, Upload, FileText, Receipt } from 'lucide-react'
 import { useStoreStore } from '@/store/useStoreStore'
 import { useAppointmentStore } from '@/store/useAppointmentStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
@@ -29,9 +29,10 @@ export default function OrderDetail() {
   const { vehicles, loadVehicles } = useVehicleStore()
 
   const [reportText, setReportText] = useState('')
-  const [reportImageNames, setReportImageNames] = useState<string[]>([])
-  const [invoiceImageNames, setInvoiceImageNames] = useState<string[]>([])
-
+  const [reportImageData, setReportImageData] = useState<string[]>([])
+  const [invoiceImageData, setInvoiceImageData] = useState<string[]>([])
+  const reportInputRef = useRef<HTMLInputElement>(null)
+  const invoiceInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => { loadStores() }, [loadStores])
   const storeId = stores[0]?.id
 
@@ -54,32 +55,50 @@ export default function OrderDetail() {
 
   const handleUploadReport = () => {
     if (!apt || !reportText.trim()) return
-    uploadReport(apt.id, reportText, reportImageNames, invoiceImageNames)
-    setReportText(''); setReportImageNames([]); setInvoiceImageNames([])
+    uploadReport(apt.id, reportText, reportImageData, invoiceImageData)
+    setReportText(''); setReportImageData([]); setInvoiceImageData([])
   }
 
-  const addImage = (type: 'report' | 'invoice') => {
-    const name = `图片_${Date.now().toString().slice(-6)}.jpg`
-    const setter = type === 'report' ? setReportImageNames : setInvoiceImageNames
-    setter((prev) => [...prev, name])
+  const readFileAsBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const handleFileSelect = async (type: 'report' | 'invoice', e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    const setter = type === 'report' ? setReportImageData : setInvoiceImageData
+    const current = type === 'report' ? reportImageData : invoiceImageData
+    const newImages: string[] = [...current]
+    for (let i = 0; i < files.length; i++) {
+      const base64 = await readFileAsBase64(files[i])
+      newImages.push(base64)
+    }
+    setter(newImages)
+    e.target.value = ''
   }
 
   const removeImage = (type: 'report' | 'invoice', idx: number) => {
-    const setter = type === 'report' ? setReportImageNames : setInvoiceImageNames
+    const setter = type === 'report' ? setReportImageData : setInvoiceImageData
     setter((prev) => prev.filter((_, i) => i !== idx))
   }
 
-  const renderThumbnails = (type: 'report' | 'invoice', names: string[], icon: ReactNode) => (
+  const renderUploadArea = (type: 'report' | 'invoice', images: string[]) => (
     <div className="flex gap-3 flex-wrap">
-      {names.map((name, i) => (
-        <div key={i} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center">
-          {icon}
-          <p className="text-[10px] text-gray-400 absolute bottom-0 left-0 right-0 truncate px-1">{name}</p>
+      {images.map((src, i) => (
+        <div key={i} className="relative w-20 h-20 rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+          <img src={src} alt="" className="w-full h-full object-cover" />
           <button onClick={() => removeImage(type, i)}
             className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] leading-none flex items-center justify-center">×</button>
         </div>
       ))}
-      <button onClick={() => addImage(type)}
+      <input ref={type === 'report' ? reportInputRef : invoiceInputRef} type="file" accept="image/*" multiple
+        onChange={(e) => handleFileSelect(type, e)} className="hidden" />
+      <button onClick={() => (type === 'report' ? reportInputRef : invoiceInputRef).current?.click()}
         className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-accent hover:text-accent transition-colors">
         <Upload size={16} />
         <span className="text-[10px] mt-1">上传</span>
@@ -226,11 +245,11 @@ export default function OrderDetail() {
           </div>
           <div>
             <p className="text-sm text-gray-500 mb-2">报告图片</p>
-            {renderThumbnails('report', reportImageNames, <ImagePlus size={20} className="text-gray-300" />)}
+            {renderUploadArea('report', reportImageData)}
           </div>
           <div>
             <p className="text-sm text-gray-500 mb-2">发票图片</p>
-            {renderThumbnails('invoice', invoiceImageNames, <Receipt size={20} className="text-gray-300" />)}
+            {renderUploadArea('invoice', invoiceImageData)}
           </div>
           <button onClick={handleUploadReport} disabled={!reportText.trim()}
             className="px-6 py-2.5 bg-accent text-white rounded-lg hover:bg-accent-600 transition-colors font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed">

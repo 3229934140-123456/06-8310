@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Wrench, Shield, FileCheck, CheckCheck, Sparkles, Bell } from 'lucide-react'
+import { Wrench, Shield, FileCheck, CheckCheck, Sparkles, Bell, Calendar } from 'lucide-react'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useReminderStore } from '@/store/useReminderStore'
@@ -13,18 +13,21 @@ const TAB_OPTIONS: { value: TabFilter; label: string }[] = [
   { value: 'maintenance', label: '保养' },
   { value: 'insurance', label: '保险' },
   { value: 'inspection', label: '年检' },
+  { value: 'appointment', label: '预约' },
 ]
 
 const TYPE_ICON: Record<ReminderType, typeof Wrench> = {
   maintenance: Wrench,
   insurance: Shield,
   inspection: FileCheck,
+  appointment: Calendar,
 }
 
 const TYPE_LABEL: Record<ReminderType, string> = {
   maintenance: '保养',
   insurance: '保险',
   inspection: '年检',
+  appointment: '预约',
 }
 
 const PRIORITY_BAR: Record<ReminderPriority, string> = {
@@ -147,6 +150,8 @@ export default function Reminders() {
                             ? 'bg-emerald-50 text-emerald-600'
                             : r.type === 'insurance'
                             ? 'bg-blue-50 text-blue-600'
+                            : r.type === 'appointment'
+                            ? 'bg-amber-50 text-amber-600'
                             : 'bg-purple-50 text-purple-600'
                         }`}>
                           <Icon size={20} />
@@ -188,7 +193,7 @@ export default function Reminders() {
                         <div className="flex gap-2">
                           {r.type === 'maintenance' && (
                             <button
-                              onClick={() => navigate('/owner/appointments/new')}
+                              onClick={() => navigate(`/owner/appointments?vehicleId=${r.vehicleId}`)}
                               className="text-xs text-accent hover:text-accent-600 font-medium"
                             >
                               去预约

@@ -4,6 +4,7 @@ import { Bell, Car, Plus, Search, ClipboardList, Shield, FileCheck, AlertTriangl
 import { useAuthStore } from '@/store/useAuthStore'
 import { useVehicleStore } from '@/store/useVehicleStore'
 import { useReminderStore } from '@/store/useReminderStore'
+import { useAppointmentStore } from '@/store/useAppointmentStore'
 import type { ReminderPriority } from '@/types'
 
 const priorityConfig: Record<ReminderPriority, { border: string; bg: string; icon: string }> = {
@@ -25,13 +26,15 @@ export default function OwnerHome() {
   const { currentUser } = useAuthStore()
   const { vehicles, loadVehicles } = useVehicleStore()
   const { reminders, loadReminders } = useReminderStore()
+  const { loadAppointments } = useAppointmentStore()
 
   useEffect(() => {
     if (currentUser?.id) {
       loadVehicles(currentUser.id)
       loadReminders(currentUser.id)
+      loadAppointments(currentUser.id)
     }
-  }, [currentUser?.id, loadVehicles, loadReminders])
+  }, [currentUser?.id, loadVehicles, loadReminders, loadAppointments])
 
   const today = new Date().toLocaleDateString('zh-CN', {
     year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',

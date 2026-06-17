@@ -38,6 +38,7 @@ export default function Appointments() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const preStoreId = searchParams.get('storeId')
+  const preVehicleId = searchParams.get('vehicleId')
   const { currentUser } = useAuthStore()
   const { appointments, loadAppointments, addAppointment } = useAppointmentStore()
   const { vehicles, loadVehicles } = useVehicleStore()
@@ -60,6 +61,17 @@ export default function Appointments() {
     }
     loadStores()
   }, [currentUser?.id, loadAppointments, loadVehicles, loadStores])
+
+  useEffect(() => {
+    if (preVehicleId && vehicles.length > 0) {
+      const exists = vehicles.find((v) => v.id === preVehicleId)
+      if (exists) {
+        setSelectedVehicle(preVehicleId)
+        setShowModal(true)
+        setStep(preStoreId ? 2 : 1)
+      }
+    }
+  }, [preVehicleId, preStoreId, vehicles])
 
   const filtered = tab === 'all' ? appointments : appointments.filter((a) => a.status === tab)
 
@@ -98,6 +110,7 @@ export default function Appointments() {
     setShowModal(false); setStep(1); setSelectedVehicle('')
     setSelectedStore(preStoreId || ''); setSelectedItems([])
     setDate(''); setTimeSlot(''); setNotes('')
+    if (preVehicleId) navigate('/owner/appointments', { replace: true })
   }
 
   return (

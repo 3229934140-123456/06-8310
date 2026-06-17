@@ -34,7 +34,7 @@ export interface ServiceRecord {
   storeName?: string
 }
 
-export type ReminderType = 'maintenance' | 'insurance' | 'inspection'
+export type ReminderType = 'maintenance' | 'insurance' | 'inspection' | 'appointment'
 export type ReminderPriority = 'high' | 'medium' | 'low'
 
 export interface Reminder {

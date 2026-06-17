@@ -39,6 +39,7 @@ export default function AppointmentDetail() {
   const [comment, setComment] = useState('')
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [hoverStar, setHoverStar] = useState(0)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -167,7 +168,8 @@ export default function AppointmentDetail() {
           {apt.reportImages && apt.reportImages.length > 0 && (
             <div className="flex gap-3 mt-3 flex-wrap">
               {apt.reportImages.map((img, i) => (
-                <img key={i} src={img} alt={`报告图片${i + 1}`} className="w-24 h-24 object-cover rounded-lg border border-gray-100" />
+                <img key={i} src={img} alt={`报告图片${i + 1}`} onClick={() => setPreviewImage(img)}
+                  className="w-24 h-24 object-cover rounded-lg border border-gray-100 cursor-pointer hover:opacity-80 transition-opacity" />
               ))}
             </div>
           )}
@@ -182,7 +184,8 @@ export default function AppointmentDetail() {
           </div>
           <div className="flex gap-3 flex-wrap">
             {apt.invoiceImages.map((img, i) => (
-              <img key={i} src={img} alt={`发票${i + 1}`} className="w-24 h-24 object-cover rounded-lg border border-gray-100" />
+              <img key={i} src={img} alt={`发票${i + 1}`} onClick={() => setPreviewImage(img)}
+                className="w-24 h-24 object-cover rounded-lg border border-gray-100 cursor-pointer hover:opacity-80 transition-opacity" />
             ))}
           </div>
         </div>
@@ -226,6 +229,18 @@ export default function AppointmentDetail() {
           className="w-full py-2.5 border border-[#EF4444] text-[#EF4444] rounded-lg hover:bg-red-50 transition-colors font-medium text-sm">
           取消预约
         </button>
+      )}
+
+      {previewImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] p-2">
+            <img src={previewImage} alt="预览" className="max-w-full max-h-[85vh] object-contain rounded-lg" />
+            <button onClick={() => setPreviewImage(null)}
+              className="absolute -top-2 -right-2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )
